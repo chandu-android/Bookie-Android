@@ -1,27 +1,20 @@
 package us.bmark.android;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.app.ListActivity;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.support.v4.app.ListFragment;
 import android.util.Log;
 import android.view.LayoutInflater;
-import android.view.Menu;
-import android.view.MenuInflater;
-import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.Window;
 import android.widget.AbsListView;
 import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.AdapterView.OnItemLongClickListener;
 import android.widget.ArrayAdapter;
-import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.TextView;
 
@@ -35,7 +28,6 @@ import retrofit.Callback;
 import retrofit.RestAdapter;
 import retrofit.RetrofitError;
 import retrofit.client.Response;
-import us.bmark.android.prefs.SettingsActivity;
 import us.bmark.android.prefs.SharedPrefsBackedUserSettings;
 import us.bmark.android.utils.ErrorHandler;
 import us.bmark.android.utils.IntentConstants;
@@ -49,9 +41,9 @@ import us.bmark.bookieclient.SearchResult;
 import static java.net.URLEncoder.encode;
 import static us.bmark.android.utils.Utils.isBlank;
 
-public class BookmarkListActivity extends ListActivity {
+public class AllBookMarksListFragment extends ListFragment {
 
-    private static final String TAG = BookmarkListActivity.class.getName();
+    private static final String TAG = AllBookMarksListFragment.class.getName();
     private int countPP;
     private BookieService service;
     private UserSettings settings;
@@ -65,13 +57,14 @@ public class BookmarkListActivity extends ListActivity {
     public static final int FORBIDDEN = 403;
     private ErrorHandler errorHandler;
 
+    private View view;
     private enum State {
-        ALL, MINE, SEARCH
+        ALL, SEARCH
     }
 
     private class BookmarkArrayAdapter extends ArrayAdapter<Bookmark> {
 
-        private static final int ROW_VIEW_ID = R.layout.list_item;
+        private static final int ROW_VIEW_ID = R.layout.allbookmarks_list_item;
 
         BookmarkArrayAdapter(Context context, List<Bookmark> objects) {
             super(context, ROW_VIEW_ID, objects);
@@ -125,7 +118,7 @@ public class BookmarkListActivity extends ListActivity {
 
         @Override
         public void success(BookmarkList bookmarkList, Response response) {
-            setProgressBarIndeterminateVisibility(false);
+            getActivity().setProgressBarIndeterminateVisibility(false);
             bmarks.addAll(bookmarkList.bmarks);
             Log.w(TAG, "on success for bookmark list, fetched " + bmarks.size());
             adapter.notifyDataSetChanged();
@@ -134,34 +127,23 @@ public class BookmarkListActivity extends ListActivity {
 
         @Override
         public void failure(RetrofitError error) {
-            setProgressBarIndeterminateVisibility(false);
+            getActivity().setProgressBarIndeterminateVisibility(false);
             errorHandler.handleError(error);
         }
     }
 
     @Override
-    public void onCreate(Bundle savedInstanceState) {
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        settings = new SharedPrefsBackedUserSettings(this);
-        errorHandler = new JustDisplayToastErrorHandler(this,settings);
+        view = inflater.inflate(R.layout.allbook_marks_main, container, false);
+        settings = new SharedPrefsBackedUserSettings(getActivity());
+        errorHandler = new JustDisplayToastErrorHandler(getActivity(),settings);
         countPP = getResources().getInteger(R.integer.default_number_of_bookmarks_to_get);
         setUpService();
-        requestWindowFeature(Window.FEATURE_INDETERMINATE_PROGRESS);
-        setContentView(R.layout.main);
-        getActionBar().setDisplayHomeAsUpEnabled(false);   // Hides the '<' button in the ActionBar
-        getActionBar().setHomeButtonEnabled(true);         // Enables the 'B' icon to be tappable on the list Activity
-        adapter = new BookmarkArrayAdapter(this,bmarks);
+        adapter = new BookmarkArrayAdapter(getActivity(),bmarks);
         setListAdapter(adapter);
-        setUpListView();
         loadMoreData();
-    }
-
-
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        MenuInflater inflater = getMenuInflater();
-        inflater.inflate(R.menu.main_activity_actions, menu);
-        return super.onCreateOptionsMenu(menu);
+        return view;
     }
 
     private void setUpService() {
@@ -174,18 +156,14 @@ public class BookmarkListActivity extends ListActivity {
 
     private void refreshWithNewestGlobal() {
         int nextPage = pagesLoaded;
-        setProgressBarIndeterminateVisibility(true);
+        getActivity().setProgressBarIndeterminateVisibility(true);
         service.everyonesRecent(countPP, nextPage, new ServiceCallback());
     }
 
-    private void refreshWithNewestUser() {
-        int nextPage = pagesLoaded;
-        setProgressBarIndeterminateVisibility(true);
-        service.recent(settings.getUsername(),
-                settings.getApiKey(),
-                countPP,
-                nextPage,
-                new ServiceCallback());
+    @Override
+    public void onStart() {
+        super.onStart();
+        setUpListView();
     }
 
     private void setUpListView() {
@@ -214,7 +192,7 @@ public class BookmarkListActivity extends ListActivity {
                 final Bundle bundle = new Bundle();
                 String bmarkJson = (new Gson()).toJson(bmark);
                 bundle.putString(IntentConstants.EXTRAS_KEY_BMARK, bmarkJson);
-                final Intent intent = new Intent(BookmarkListActivity.this,
+                final Intent intent = new Intent(getActivity(),
                         BookMarkDetailActivity.class);
                 intent.putExtras(bundle);
                 startActivity(intent);
@@ -225,70 +203,6 @@ public class BookmarkListActivity extends ListActivity {
         lv.setOnScrollListener(new EndlessScrollListener());
     }
 
-
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-
-        switch( item.getItemId() ) {
-            case android.R.id.home:
-            case R.id.action_everyones_recent:
-                Log.v(TAG, "global button clicked");
-                flipState(State.ALL);
-                return true;
-            case R.id.action_recent:
-                Log.v(TAG, "user button clicked");
-                flipState(State.MINE);
-                return true;
-            case R.id.action_settings:
-                Intent settingsIntent =
-                        new Intent(BookmarkListActivity.this, SettingsActivity.class);
-                BookmarkListActivity.this.startActivity(settingsIntent);
-                return true;
-            case R.id.action_search:
-                displaySearchDialog();
-            default:
-                return super.onOptionsItemSelected(item);
-        }
-    }
-
-    private void flipState(State desiredState) {
-        this.state = desiredState;
-        bmarks = new ArrayList<Bookmark>(countPP);
-        adapter = new BookmarkArrayAdapter(this,bmarks);
-        setListAdapter(adapter);
-        pagesLoaded = 0;
-        getListView().setOnScrollListener(new EndlessScrollListener());
-
-        loadMoreData();
-    }
-
-    private void displaySearchDialog() {
-        AlertDialog.Builder alert = new AlertDialog.Builder(this);
-
-        alert.setTitle(R.string.search_dialog_title);
-        alert.setMessage(R.string.search_dialog_message);
-
-        final EditText input = new EditText(this);
-        alert.setView(input);
-
-        alert.setPositiveButton(R.string.search_dialog_positive_button, new DialogInterface.OnClickListener() {
-            @Override
-            public void onClick(DialogInterface dialog, int whichButton) {
-                searchTerms = input.getText().toString();
-                flipState(State.SEARCH);
-            }
-        });
-
-        alert.setNegativeButton(R.string.search_dialog_cancel_button, new DialogInterface.OnClickListener() {
-            @Override
-            public void onClick(DialogInterface dialog, int whichButton) {
-                // Do nothing
-            }
-        });
-
-        alert.show();
-    }
-
     private void refreshWithSearch() {
         String terms;
         try {
@@ -297,7 +211,7 @@ public class BookmarkListActivity extends ListActivity {
             Log.e(TAG,"UTF-8 not supported?",e);
             return;
         }
-        setProgressBarIndeterminateVisibility(true);
+        getActivity().setProgressBarIndeterminateVisibility(true);
         final int nextPage = pagesLoaded;
         service.search(settings.getUsername(),settings.getApiKey(),
                 terms,countPP,nextPage,
@@ -311,12 +225,12 @@ public class BookmarkListActivity extends ListActivity {
                             adapter.notifyDataSetChanged();
                             pagesLoaded++;
                         }
-                        setProgressBarIndeterminateVisibility(false);
+                        getActivity().setProgressBarIndeterminateVisibility(false);
                     }
 
                     @Override
                     public void failure(RetrofitError error) {
-                        setProgressBarIndeterminateVisibility(false);
+                        getActivity().setProgressBarIndeterminateVisibility(false);
                         errorHandler.handleError(error);
                     }
                 });
@@ -325,8 +239,6 @@ public class BookmarkListActivity extends ListActivity {
     private void loadMoreData() {
         switch(state) {
             case ALL : refreshWithNewestGlobal(); break;
-            case MINE : refreshWithNewestUser(); break;
-            case SEARCH : refreshWithSearch(); break;
         }
     }
 
